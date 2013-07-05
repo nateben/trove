@@ -260,7 +260,7 @@ class TestBackupPositive(BackupsBase):
         assert_equal("BUILD", restore_resp.status)
         assert_is_not_none(restore_resp.id, 'restored inst_id does not exist')
         self.restore_id = restore_resp.id
-        poll_until(self._result_is_active)
+        poll_until(self._result_is_active, sleep_time=10, time_out=120)
         restored_inst = instance_info.dbaas.instances.get(self.restore_id)
         assert_is_not_none(restored_inst, 'restored instance does not exist')
         assert_equal(restored_inst.name, BACKUP_NAME + "_restore")
@@ -272,7 +272,7 @@ class TestBackupPositive(BackupsBase):
           always_run=True)
     def test_delete_backup(self):
         self._delete_backup(self.backup_id)
-        poll_until(self._backup_is_gone)
+        poll_until(self._backup_is_gone, sleep_time=10, time_out=120)
 
     @test(depends_on=[test_restore_backup], always_run=True)
     def test_delete_restored_instance(self):
@@ -419,7 +419,8 @@ class TestBackupNegative(BackupsBase):
         except exceptions.ClientException:
             assert_equal(404, self.spare_client.last_http_code)
         instance_info.dbaas.backups.delete(backup.id)
-        poll_until(lambda: self._backup_is_gone(backup_id=backup.id))
+        poll_until(lambda: self._backup_is_gone(backup_id=backup.id),
+                   sleep_time=10, time_out=120)
 
     @test
     def test_delete_backup_account_not_owned(self):
@@ -463,7 +464,8 @@ class TestBackupNegative(BackupsBase):
         poll_until(lambda: self._verify_backup_status(backup.id, 'COMPLETED'),
                    time_out=120, sleep_time=2)
         instance_info.dbaas.backups.delete(backup.id)
-        poll_until(lambda: self._backup_is_gone(backup_id=backup.id))
+        poll_until(lambda: self._backup_is_gone(backup_id=backup.id),
+                   sleep_time=10, time_out=120)
 
     @test(runs_after=[test_restore_backup_that_did_not_complete])
     def test_delete_while_backing_up(self):
@@ -478,9 +480,11 @@ class TestBackupNegative(BackupsBase):
             assert_equal(422, instance_info.dbaas.last_http_code)
         poll_until(lambda: self._verify_backup_status(backup.id, 'COMPLETED'),
                    time_out=120, sleep_time=1)
-        # DCF WHy is this delete different than the one above that uses the helper function?
+        # DCF WHy is this delete different than the
+        # one above that uses the helper function?
         instance_info.dbaas.backups.delete(backup.id)
-        poll_until(lambda: self._backup_is_gone(backup_id=backup.id))
+        poll_until(lambda: self._backup_is_gone(backup_id=backup.id),
+                   sleep_time=10, time_out=120)
 
     def test_instance_action_right_after_backup_create(self):
         """test any instance action while backup is running"""
@@ -517,7 +521,8 @@ class TestBackupNegative(BackupsBase):
         poll_until(lambda: self._verify_backup_status(backup.id, 'COMPLETED'),
                    time_out=120, sleep_time=2)
         self._delete_backup(backup.id)
-        poll_until(self._backup_is_gone(backup.id))
+        poll_until(self._backup_is_gone(backup.id),
+                   sleep_time=10, time_out=120)
         try:
             self._create_restore(instance_info.dbaas, backup.id)
             assert_true(False, "Expected 404 from create restore")
@@ -531,7 +536,8 @@ class TestBackupNegative(BackupsBase):
         poll_until(lambda: self._verify_backup_status(backup.id, 'COMPLETED'),
                    time_out=120, sleep_time=1)
         self._delete_backup(backup.id)
-        poll_until(lambda: self._backup_is_gone(backup.id))
+        poll_until(lambda: self._backup_is_gone(backup.id),
+                   sleep_time=10, time_out=120)
         try:
             self._delete_backup(backup.id)
             assert_true(False, "Expected 404 from delete backup")
@@ -546,13 +552,15 @@ class TestBackupNegative(BackupsBase):
         try:
             self._delete_backup(self.xtra_backup.id)
             assert_equal(202, instance_info.dbaas.last_http_code)
-            poll_until(lambda: self._backup_is_gone(self.xtra_backup.id))
+            poll_until(lambda: self._backup_is_gone(self.xtra_backup.id),
+                       sleep_time=10, time_out=120)
         except exceptions.NotFound:
             assert_equal(404, instance_info.dbaas.last_http_code)
         try:
             instance_info.dbaas.instances.delete(self.xtra_instance.id)
             assert_equal(202, instance_info.dbaas.last_http_code)
-            poll_until(lambda: self._instance_is_gone(self.xtra_instance.id))
+            poll_until(lambda: self._instance_is_gone(self.xtra_instance.id),
+                       sleep_time=10, time_out=120)
         except exceptions.NotFound:
             assert_equal(404, instance_info.dbaas.last_http_code)
         finally:
@@ -574,6 +582,7 @@ class TestBackupCleanup(BackupsBase):
                 try:
                     self._delete_backup(backup.id)
                     assert_equal(202, instance_info.dbaas.last_http_code)
-                    poll_until(lambda: self._backup_is_gone(backup.id))
+                    poll_until(lambda: self._backup_is_gone(backup.id),
+                               sleep_time=10, time_out=120)
                 except exceptions.NotFound:
                     assert_equal(404, instance_info.dbaas.last_http_code)
