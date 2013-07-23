@@ -37,11 +37,22 @@ from trove.tests.api.instances import assert_unprocessable
 from trove.tests.api.instances import GROUP_START
 from trove.tests.util.users import Requirements
 from trove.tests.api.instances import assert_unprocessable
-#from reddwarfclient import backups
 from troveclient import exceptions
+
 from datetime import datetime
 # Define groups
+from time import sleep
 
+
+from trove.tests.util import mysql_connection
+from trove.tests.util import MySqlConnection
+from trove.tests.util import mysql as old_util
+
+# Define groups
+
+
+
+# Define groups
 GROUP = "dbaas.api.backups"
 GROUP_POSITIVE = GROUP + ".positive"
 GROUP_NEGATIVE = GROUP + ".negative"
@@ -52,7 +63,6 @@ BACKUP_DB_NAME = "backup_DB"
 backup_name = None
 backup_desc = None
 deleted_backup_id = None
-
 databases = []
 users = []
 backup_resp = None
@@ -306,6 +316,11 @@ class TestBackupPositive(BackupsBase):
         assert_is_not_none(backup.created, 'backup.created does not exist')
         assert_is_not_none(backup.updated, 'backup.updated does not exist')
 
+    @test(depends_on=[test_list_backups_for_deleted_instance])
+    def test_delete_backup_deleted_instance(self):
+        instance_info.dbaas.backups.delete(self.deleted_backup_id)
+        assert_equal(202, instance_info.dbaas.last_http_code)
+
 
 @test(depends_on_classes=[WaitForGuestInstallationToFinish],
       groups=[GROUP, GROUP_NEGATIVE])
@@ -317,6 +332,8 @@ class TestBackupNegative(BackupsBase):
     xtra_backup = None
     spare_client = None
     spare_user = None
+    mgmt_client = None
+    mgmt_user = None
 
     @before_class
     def setUp(self):
@@ -325,6 +342,10 @@ class TestBackupNegative(BackupsBase):
             Requirements(is_admin=False, services=["trove"]),
             black_list=[instance_info.user.auth_user])
         self.spare_client = util.create_dbaas_client(self.spare_user)
+
+        self.mgmt_user = test_config.users.find_user(
+            Requirements(is_admin=True, services=["trove"]))
+        self.mgmt_client = util.create_dbaas_client(self.mgmt_user)
 
     def test_create_backup(self):
         backup = self._create_backup(BACKUP_NAME, BACKUP_DESC,
@@ -392,6 +413,36 @@ class TestBackupNegative(BackupsBase):
         self._delete_backup(backup.id)
         assert_equal(202, instance_info.dbaas.last_http_code)
         poll_until(lambda: self._backup_is_gone(backup_id=backup.id))
+
+    @test(runs_after=[test_create_backup_with_instance_not_active])
+    def test_create_backup_beyond_quota(self):
+        # Get current # of backups for instance_info.user as n
+        # set quota q = n + 1
+        backup_list = instance_info.dbaas.backups.list()
+        n = len(backup_list) + 1
+
+        self.mgmt_client.quota.update(self.spare_user.tenant, {"backups": n})
+        assert_equal(200, self.mgmt_client.last_http_code)
+        # # create backup
+        backup = self._create_backup(BACKUP_NAME, BACKUP_DESC,
+                                     inst_id=self.xtra_instance.id)
+        assert_equal(202, instance_info.dbaas.last_http_code)
+        poll_until(lambda: self._verify_backup_status(backup.id, 'COMPLETED'),
+                   time_out=120, sleep_time=2)
+
+        # # create backup second time
+        try:
+            backup2 = self._create_backup(BACKUP_NAME, BACKUP_DESC,
+                                          inst_id=self.xtra_instance.id)
+        except exceptions.ClientException:
+            assert_equal(202, instance_info.dbaas.last_http_code,
+                         "Call allowed beyond quota")
+            assert_equal(413, instance_info.dbaas.last_http_code)
+        finally:
+            # set backup to 100
+            self.mgmt_client.quota.update(instance_info.user.tenant,
+                                          {"backups": 100})
+            assert_equal(200, self.mgmt_client.last_http_code)
 
     @test
     def test_list_backups_account_not_owned(self):
@@ -486,14 +537,42 @@ class TestBackupNegative(BackupsBase):
         poll_until(lambda: self._backup_is_gone(backup_id=backup.id),
                    sleep_time=10, time_out=120)
 
-    def test_instance_action_right_after_backup_create(self):
-        """test any instance action while backup is running"""
+    @test
+    def test_instance_resize_right_after_backup_create(self):
+        """test an instance resize while backup is running"""
+        raise SkipTest("Skipping until other tests pass - can take time")
         backup = self._create_backup("modify_during_create",
                                      "modify instance while creating backup")
         assert_equal(202, instance_info.dbaas.last_http_code)
-        # Dont wait for backup to complete, try to delete it
+        # Dont wait for backup to complete, try to resize instance
         assert_unprocessable(instance_info.dbaas.instances.resize_instance,
                              instance_info.id, 1)
+        poll_until(lambda: self._verify_backup_status(backup.id, 'COMPLETED'),
+                   time_out=120, sleep_time=2)
+
+    @test
+    def test_instance_restart_right_after_backup_create(self):
+        """test an instance restart while backup is running"""
+        raise SkipTest("Skipping until other tests pass - can take time")
+        backup = self._create_backup("modify_during_create",
+                                     "modify instance while creating backup")
+        assert_equal(202, instance_info.dbaas.last_http_code)
+        # Dont wait for backup to complete, try to restart instance
+        assert_unprocessable(instance_info.dbaas.instances.restart,
+                             instance_info.id)
+        poll_until(lambda: self._verify_backup_status(backup.id, 'COMPLETED'),
+                   time_out=120, sleep_time=2)
+
+    @test
+    def test_instance_delete_right_after_backup_create(self):
+        """test an instance delete while backup is running"""
+        raise SkipTest("Skipping until other tests pass - can take time")
+        backup = self._create_backup("modify_during_create",
+                                     "modify instance while creating backup")
+        assert_equal(202, instance_info.dbaas.last_http_code)
+        # Dont wait for backup to complete, try to delete instance
+        assert_unprocessable(instance_info.dbaas.instances.delete,
+                             instance_info.id)
         poll_until(lambda: self._verify_backup_status(backup.id, 'COMPLETED'),
                    time_out=120, sleep_time=2)
 
@@ -586,3 +665,140 @@ class TestBackupCleanup(BackupsBase):
                                sleep_time=10, time_out=120)
                 except exceptions.NotFound:
                     assert_equal(404, instance_info.dbaas.last_http_code)
+
+
+@test(groups=[GROUP_DELETE])
+class TestDeleteAll(BackupsBase):
+
+    @test
+    def test_delete_all(self):
+        util.delete_all_user_instances(self.dbaas)
+        # list the instances found for this user
+        #print 'List all instances found for this user'
+        #instancesList = self.dbaas.instances.list()
+        #for instance in instancesList:
+            # Add the instance to the list
+            #print("UUID: %s  STATUS: %s" % (instance.id, instance.status))
+            # Delete this instance
+
+            # wait for all the instances to go active
+
+
+@test(depends_on_classes=[WaitForGuestInstallationToFinish],
+      groups=[GROUP, GROUP_PERFORMANCE])
+class TestBackupPerformance(BackupsBase):
+    user = "BackUtilTestUser"
+    password = "BackUtilTestUserPassword"
+    db_name = "BackupDB"
+    TIME_OUT = 30
+
+    def __init__(self):
+        mgmt_inst = instance_info.dbaas_admin.management.show(instance_info)
+        self.address = mgmt_inst.server['addresses']['usernet'][0]['addr']
+        self._create_user_and_db()
+
+    @test
+    def populate_DB_tables(self):
+        with self.create_connection() as db:
+            db.execute("use %s" % self.db_name)
+            db.execute("DROP PROCEDURE IF EXISTS stuff_it")
+            db.execute("DROP PROCEDURE IF EXISTS size_of_db")
+            db.execute("""
+                DELIMITER //
+                CREATE PROCEDURE stuff_it (IN finish INT)
+                BEGIN
+                    DROP TABLE IF EXISTS Stuff;
+                    CREATE TABLE IF NOT EXISTS Stuff (
+                        id INT NOT NULL AUTO_INCREMENT,
+                        junk CHAR(252) NOT NULL,
+                        junk2 CHAR(252) NOT NULL,
+                        junk3 CHAR(252) NOT NULL,
+                        junk4 CHAR(252) NOT NULL,
+                        PRIMARY KEY(id));
+                    DELETE FROM Stuff;
+                    SET @i = 0;
+                    REPEAT
+                        SET @i = @i + 1;
+                        INSERT INTO Stuff (id, junk, junk2, junk3, junk4)
+                            VALUES(@i, @i, @i, @i, @i);
+                    UNTIL @i >= finish END REPEAT;
+                END //
+                CREATE PROCEDURE size_of_db ()
+                BEGIN
+                    SELECT TABLE_SCHEMA AS 'Database', TABLE_NAME AS 'Table',
+                    CONCAT(ROUND(((DATA_LENGTH + INDEX_LENGTH - DATA_FREE) /
+                    1024 / 1024),2)," MB") AS Size
+                    FROM INFORMATION_SCHEMA.TABLES
+                    where TABLE_SCHEMA like 'BackupDB';
+                END //
+                DELIMITER ;
+                """)
+            try:
+                db.execute("""CALL stuff_it(%d) ;""" % (10000))
+            except Exception as ex:
+                if "The table 'Stuff' is full" in str(ex):
+                    return
+                raise
+
+            # THIS is where I think the problem is, we're sending the execute
+            # command to create Table Stuff2 but the previous command has not
+            # completed the stuff_it call on 10000 rows
+
+            db.execute("""CREATE TABLE Stuff2 LIKE Stuff;""")
+
+
+            print("Completed stuffing, run CALL size_of_db();")
+            db.execute("""show tables;
+                          CALL size_of_db();
+                          CREATE TABLE Stuff2 LIKE Stuff;
+                          INSERT Stuff2 SELECT * FROM Stuff;""")
+            db.execute("""show tables;""")
+            print("Completed stuffingx2")
+            db.execute("""CALL size_of_db();""")
+
+        sleep(10)
+
+    @test(depends_on=[populate_DB_tables])
+    def test_backup_loaded_DB(self):
+        # CREATE BACKUP
+        backup = self._create_backup("fast_backup",
+                                     "fast_backup description",
+                                     inst_id=instance_info.id)
+        self.backup_id = backup.id
+        assert_equal(202, instance_info.dbaas.last_http_code)
+        poll_until(lambda: self._verify_backup_status(backup.id, 'COMPLETED'),
+                   time_out=120, sleep_time=2)
+        poll_until(lambda: self._verify_instance_status(instance_info.id,
+                                                        'ACTIVE'),
+                   time_out=120, sleep_time=2)
+
+    @test(depends_on=[test_backup_loaded_DB])
+    def test_restore_loaded_DB(self):
+        # CREATE RESTORE
+        restore_resp = self._create_restore(instance_info.dbaas,
+                                            self.backup_id)
+        assert_equal(200, instance_info.dbaas.last_http_code)
+        assert_equal("BUILD", restore_resp.status)
+        assert_is_not_none(restore_resp.id, 'restored inst_id does not exist')
+        self.restore_id = restore_resp.id
+        poll_until(lambda: self._verify_instance_status(restore_resp.id,
+                                                        'ACTIVE'),
+                   time_out=120, sleep_time=2)
+        restored_inst = instance_info.dbaas.instances.get(restore_resp.id)
+        print(dir(restored_inst))
+        print("Restore ID: %r " % restored_inst.id)
+        self._verify_databases(self.db_name)
+        mgmt_restore = instance_info.dbaas_admin.management.show(restore_resp.id)
+        self.address = mgmt_restore.server['addresses']['usernet'][0]['addr']
+        print("mysql --host %r -u %r -p%r " % (str(self.address), self.user,
+              self.password))
+        instances_list=instance_info.dbaas.instances.list()
+        for instance in instances_list:
+            print ("Deleting instance: %r" % instance.id)
+            try:
+                instance_info.dbaas.instances.delete(instance.id)
+                poll_until(lambda: self._instance_is_gone(instance.id))
+            except exceptions.UnprocessableEntity:
+                print ("Instance could not be deleted. ID: %r. Hitting 422"
+                       % instance.id)
+                assert_equal(422, instance_info.dbaas.last_http_code)
