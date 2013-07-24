@@ -521,7 +521,7 @@ class TestBackupNegative(BackupsBase):
         poll_until(lambda: self._verify_backup_status(backup.id, 'COMPLETED'),
                    time_out=120, sleep_time=2)
         self._delete_backup(backup.id)
-        poll_until(self._backup_is_gone(backup.id),
+        poll_until(lambda: self._backup_is_gone(backup.id),
                    sleep_time=10, time_out=120)
         try:
             self._create_restore(instance_info.dbaas, backup.id)
