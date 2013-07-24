@@ -56,6 +56,7 @@ from trove.tests.util import mysql as old_util
 GROUP = "dbaas.api.backups"
 GROUP_POSITIVE = GROUP + ".positive"
 GROUP_NEGATIVE = GROUP + ".negative"
+GROUP_PERFORMANCE = GROUP + ".performance"
 # Define Globals
 BACKUP_NAME = 'backup_test'
 BACKUP_DESC = 'test description for backup'
@@ -666,22 +667,6 @@ class TestBackupCleanup(BackupsBase):
                 except exceptions.NotFound:
                     assert_equal(404, instance_info.dbaas.last_http_code)
 
-
-@test(groups=[GROUP_DELETE])
-class TestDeleteAll(BackupsBase):
-
-    @test
-    def test_delete_all(self):
-        util.delete_all_user_instances(self.dbaas)
-        # list the instances found for this user
-        #print 'List all instances found for this user'
-        #instancesList = self.dbaas.instances.list()
-        #for instance in instancesList:
-            # Add the instance to the list
-            #print("UUID: %s  STATUS: %s" % (instance.id, instance.status))
-            # Delete this instance
-
-            # wait for all the instances to go active
 
 
 @test(depends_on_classes=[WaitForGuestInstallationToFinish],
